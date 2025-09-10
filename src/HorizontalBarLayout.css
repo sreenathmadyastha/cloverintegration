@@ -1,0 +1,31 @@
+.bar-container {
+  display: flex;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.bar {
+  height: 30px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 10px;
+  color: white;
+  font-weight: bold;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.paid-bar {
+  background-color: #4B5EAA; /* Blue */
+}
+
+.open-bar {
+  background-color: #A3BFFA; /* Light Blue */
+}
+
+.clover-bar {
+  background-color: #4CAF50; /* Green */
+}
