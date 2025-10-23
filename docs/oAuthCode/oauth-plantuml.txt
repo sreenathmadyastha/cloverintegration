@@ -1,0 +1,176 @@
+@startuml
+!define ENTERPRISE_CACHE_COLOR #E8F5E9
+!define YOUR_REDIS_COLOR #E3F2FD
+!define FRONTEND_COLOR #FFF9C4
+!define BACKEND_COLOR #F3E5F5
+
+skinparam backgroundColor #FAFAFA
+skinparam sequenceMessageAlign center
+
+actor User
+participant "Browser\n(React)" as Browser FRONTEND_COLOR
+participant "API\n(C# WebAPI)" as API BACKEND_COLOR
+database "Enterprise\nRedis Cache" as EnterpriseCache ENTERPRISE_CACHE_COLOR
+database "Your\nRedis Cache" as YourCache YOUR_REDIS_COLOR
+
+== Initial URL Access ==
+
+User -> Browser: Access URL\ndashboardurl.com/auth?token=ABC123
+activate Browser
+
+Browser -> Browser: Extract token from URL\ntoken = "ABC123"
+Browser -> API: POST /api/auth/authenticate\n{ "token": "ABC123" }
+activate API
+
+== Token Validation & Exchange ==
+
+API -> EnterpriseCache: GET "ABC123"
+activate EnterpriseCache
+EnterpriseCache --> API: Returns TokenClaims:\n{\n  userId: "user123",\n  sponsorId: "sponsor456",\n  subscriberId: "sub789",\n  permissions: ["CanAccessDashboard"],\n  validUntil: "2025-10-23T18:00:00Z"\n}
+deactivate EnterpriseCache
+
+API -> API: Validate expiration:\nvalidUntil > DateTime.UtcNow ✓
+
+API -> EnterpriseCache: DELETE "ABC123"\n(one-time use)
+activate EnterpriseCache
+EnterpriseCache --> API: Deleted
+deactivate EnterpriseCache
+
+API -> API: Generate Access Token (JWT):\neyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\nExpires: 15 minutes\nContains: userId, sponsorId,\nsubscriberId, permissions
+
+API -> API: Generate Refresh Token:\nk8JH3mN9pQ2rT5vX8zA1bC4dE6fG...\n(random 64-byte string)
+
+API -> YourCache: SET "RT:sponsor456:sub789"\nValue: {\n  userId: "user123",\n  sponsorId: "sponsor456",\n  subscriberId: "sub789",\n  refreshToken: "k8JH3mN9...",\n  permissions: ["CanAccessDashboard"],\n  maxValidUntil: "2025-10-23T18:00:00Z"\n}\nTTL: time until maxValidUntil
+activate YourCache
+YourCache --> API: Stored
+deactivate YourCache
+
+API --> Browser: 200 OK\n{\n  "accessToken": "eyJhbGci...",\n  "refreshToken": "k8JH3mN9...",\n  "expiresIn": 900,\n  "sessionExpiresAt": "2025-10-23T18:00:00Z",\n  "permissions": ["CanAccessDashboard"],\n  "sponsorId": "sponsor456",\n  "subscriberId": "sub789"\n}\nSet-Cookie: refreshToken=k8JH3mN9...
+deactivate API
+
+Browser -> Browser: Store in memory:\n- accessToken: "eyJhbGci..."\n- permissions: ["CanAccessDashboard"]\n- sponsorId, subscriberId\n\nStore in cookie:\n- refreshToken: "k8JH3mN9..."
+
+Browser -> Browser: Schedule token refresh\nfor 14 minutes
+
+Browser -> Browser: Navigate to /dashboard
+deactivate Browser
+
+== Accessing Protected Resources ==
+
+User -> Browser: View Dashboard
+activate Browser
+
+Browser -> API: GET /api/dashboard\nAuthorization: Bearer eyJhbGci...
+activate API
+
+API -> API: Validate JWT:\n1. Verify signature ✓\n2. Check expiration ✓\n3. Extract claims:\n   - userId: "user123"\n   - permissions: ["CanAccessDashboard"]
+
+note right of API
+  No Redis lookup needed!
+  JWT is self-contained
+end note
+
+API -> API: Check permission:\nUser has "CanAccessDashboard" ✓
+
+API --> Browser: 200 OK\n{ "dashboardData": {...} }
+deactivate API
+
+Browser -> Browser: Display dashboard
+deactivate Browser
+
+== Token Refresh (After 14 Minutes) ==
+
+Browser -> Browser: Token refresh timer fires
+activate Browser
+
+Browser -> API: POST /api/auth/refresh\nCookie: refreshToken=k8JH3mN9...
+activate API
+
+API -> API: Extract refresh token\nfrom cookie
+
+API -> YourCache: KEYS "RT:*"\nFind token matching\n"k8JH3mN9..."
+activate YourCache
+YourCache --> API: Found key:\n"RT:sponsor456:sub789"
+deactivate YourCache
+
+API -> YourCache: GET "RT:sponsor456:sub789"
+activate YourCache
+YourCache --> API: Returns RefreshTokenData:\n{\n  userId: "user123",\n  sponsorId: "sponsor456",\n  subscriberId: "sub789",\n  refreshToken: "k8JH3mN9...",\n  permissions: ["CanAccessDashboard"],\n  maxValidUntil: "2025-10-23T18:00:00Z"\n}
+deactivate YourCache
+
+API -> API: Validate:\n1. Token matches ✓\n2. maxValidUntil > now ✓
+
+API -> API: Generate NEW Access Token:\neyJnEw4B... (new JWT)\nExpires: 15 minutes\nSame permissions
+
+API --> Browser: 200 OK\n{\n  "accessToken": "eyJnEw4B...",\n  "expiresIn": 900,\n  "sessionExpiresAt": "2025-10-23T18:00:00Z",\n  "permissions": ["CanAccessDashboard"]\n}
+deactivate API
+
+Browser -> Browser: Update stored access token:\naccessToken = "eyJnEw4B..."\n\nSchedule next refresh\nfor 14 minutes
+deactivate Browser
+
+== Subsequent API Calls ==
+
+User -> Browser: View Reports
+activate Browser
+
+Browser -> API: GET /api/reports\nAuthorization: Bearer eyJnEw4B...
+activate API
+
+API -> API: Validate JWT ✓\nCheck permission:\n"CanViewReports" ✗
+
+API --> Browser: 403 Forbidden\n{ "message": "Access Denied" }
+deactivate API
+
+Browser -> Browser: Display\n"Access Denied" message
+deactivate Browser
+
+== Session Expiration ==
+
+note over Browser, YourCache
+  After 4 hours (original token validUntil),
+  the session expires
+end note
+
+Browser -> Browser: Token refresh timer fires
+activate Browser
+
+Browser -> API: POST /api/auth/refresh\nCookie: refreshToken=k8JH3mN9...
+activate API
+
+API -> YourCache: GET "RT:sponsor456:sub789"
+activate YourCache
+YourCache --> API: Key not found\n(TTL expired)
+deactivate YourCache
+
+API --> Browser: 401 Unauthorized\n{ "message": "Session has expired" }
+deactivate API
+
+Browser -> Browser: Clear all tokens\nRedirect to /login
+deactivate Browser
+
+User -> Browser: Sees login page
+
+== User Logout ==
+
+User -> Browser: Click Logout
+activate Browser
+
+Browser -> API: POST /api/auth/logout\nAuthorization: Bearer eyJnEw4B...\nCookie: refreshToken=k8JH3mN9...
+activate API
+
+API -> API: Extract sponsorId & subscriberId\nfrom JWT claims
+
+API -> YourCache: DELETE "RT:sponsor456:sub789"
+activate YourCache
+YourCache --> API: Deleted
+deactivate YourCache
+
+API --> Browser: 200 OK\n{ "message": "Logged out successfully" }\nSet-Cookie: refreshToken=; expires=Thu, 01 Jan 1970...
+deactivate API
+
+Browser -> Browser: Clear all tokens from memory\nRedirect to /login
+deactivate Browser
+
+User -> Browser: Sees login page
+
+@enduml
