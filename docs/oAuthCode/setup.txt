@@ -1,0 +1,63 @@
+I've created comprehensive NUnit test cases for your OAuth implementation! Here's what's included:
+Test Coverage:
+
+Initial Token Generation (TC001-TC002)
+
+First-time authentication
+Invalid credentials handling
+
+
+Access Token Validation (TC003-TC007)
+
+Valid token returns existing token
+Expired token handling
+Malformed token detection
+Boundary conditions (exactly 10 minutes, just before expiry)
+
+
+Refresh Token Logic (TC008-TC012)
+
+Valid refresh generates new access token
+Token rotation mechanism
+Invalid/expired refresh token handling
+Security: detecting reused refresh tokens
+
+
+Concurrent Requests (TC013-TC014)
+
+Multiple simultaneous validations
+Race condition handling for refresh
+
+
+Security & Edge Cases (TC017-TC021)
+
+Missing/null tokens
+Cross-user token access prevention
+Revoked tokens
+Post-password-change invalidation
+Empty string handling
+
+
+Time-based Edge Cases (TC024-TC025)
+
+Clock changes
+Midnight boundary calculations
+
+
+
+Key Features:
+✅ Uses Moq for mocking dependencies
+✅ Async/await patterns throughout
+✅ Proper setup and teardown
+✅ TestCase attributes for parameterized tests
+✅ Clear Arrange-Act-Assert structure
+✅ Comprehensive assertions with meaningful messages
+To Use:
+
+Install NuGet packages: NUnit, NUnit3TestAdapter, Moq
+Implement the actual interfaces (ITokenService, ITokenRepository) in your project
+Implement the OAuthService class
+Adjust mock setups to match your actual implementation
+Run tests in Visual Studio Test Explorer
+
+Would you like me to add more specific test scenarios or help with the actual implementation of the OAuth service?
